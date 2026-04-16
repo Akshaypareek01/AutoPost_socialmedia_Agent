@@ -1,0 +1,36 @@
+{
+  "name": "techpage-auto",
+  "version": "1.0.0",
+  "description": "Automated tech news poster for Instagram and LinkedIn",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "nodemon src/index.js",
+    "fetch": "node src/fetcher/index.js",
+    "generate": "node src/generator/index.js",
+    "publish": "node src/publisher/index.js",
+    "approve": "node src/approval/telegram.js",
+    "test:fetch": "node src/fetcher/test.js",
+    "test:gen": "node src/generator/test.js",
+    "test:pub": "node src/publisher/test.js",
+    "logs": "tail -f logs/app.log",
+    "test:post": "node scripts/test-post.js"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.1030.0",
+    "axios": "^1.6.0",
+    "bottleneck": "^2.19.5",
+    "dotenv": "^16.3.1",
+    "form-data": "^4.0.0",
+    "node-cron": "^3.0.3",
+    "node-telegram-bot-api": "^0.64.0",
+    "rss-parser": "^3.13.0",
+    "winston": "^3.11.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.2"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

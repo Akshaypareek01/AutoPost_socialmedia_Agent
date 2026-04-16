@@ -1,0 +1,23 @@
+# Environment — NEVER commit this
+.env
+
+# Dependencies
+node_modules/
+
+# Logs
+logs/*.log
+logs/*.gz
+
+# Queue data (optional — commit if you want history)
+queue/posts.json
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+
+# PM2
+.pm2/
