@@ -201,4 +201,134 @@ async function verifyLinkedInSetup() {
   }
 }
 
-module.exports = { postToLinkedIn, postToLinkedInWithImage, getPersonUrn, verifyLinkedInSetup };
+/**
+ * Post a video to LinkedIn.
+ *
+ * LinkedIn Video Upload Flow (v2 API):
+ *   1. Register video upload → get uploadUrl + asset URN
+ *   2. Upload video binary via PUT
+ *   3. Create UGC post with VIDEO shareMediaCategory
+ *
+ * Requirements:
+ *   - Video: MP4, H.264, max 200MB, duration 3s–10min
+ *   - w_member_social scope required
+ *
+ * @param {string} postText  - Post text
+ * @param {string} videoPath - Local path to the .mp4 file
+ * @param {string} [videoTitle] - Optional title shown on LinkedIn
+ */
+async function postVideoToLinkedIn(postText, videoPath, videoTitle = 'Tech Update') {
+  const fs = require('fs');
+  const accessToken = process.env.LINKEDIN_ACCESS_TOKEN;
+  const postAs = process.env.LINKEDIN_POST_AS || 'person';
+  const authorUrn = postAs === 'organization'
+    ? process.env.LINKEDIN_ORGANIZATION_URN
+    : process.env.LINKEDIN_PERSON_URN;
+
+  if (!accessToken) throw new Error('LINKEDIN_ACCESS_TOKEN not set in .env');
+  if (!authorUrn) throw new Error(`LINKEDIN_${postAs.toUpperCase()}_URN not set in .env`);
+  if (!fs.existsSync(videoPath)) throw new Error(`Video file not found: ${videoPath}`);
+
+  const videoBuffer = fs.readFileSync(videoPath);
+  const videoSizeMb = (videoBuffer.length / 1024 / 1024).toFixed(1);
+  logger.info(`[LinkedIn] Uploading video: ${videoSizeMb}MB`);
+
+  // Step 1: Register video upload
+  const registerRes = await withRetry(
+    () =>
+      axios.post(
+        `${LI_API}/assets?action=registerUpload`,
+        {
+          registerUploadRequest: {
+            recipes: ['urn:li:digitalmediaRecipe:feedshare-video'],
+            owner: authorUrn,
+            serviceRelationships: [
+              {
+                relationshipType: 'OWNER',
+                identifier: 'urn:li:userGeneratedContent',
+              },
+            ],
+          },
+        },
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            'Content-Type': 'application/json',
+          },
+        }
+      ),
+    { label: 'LinkedIn register video', retries: 3, baseDelay: 2000 }
+  );
+
+  const uploadUrl = registerRes.data?.value?.uploadMechanism?.['com.linkedin.digitalmedia.uploading.MediaUploadHttpRequest']?.uploadUrl;
+  const assetUrn = registerRes.data?.value?.asset;
+
+  if (!uploadUrl || !assetUrn) {
+    throw new Error(`LinkedIn video upload registration failed: ${JSON.stringify(registerRes.data).slice(0, 200)}`);
+  }
+
+  logger.info(`[LinkedIn] Video asset registered: ${assetUrn}`);
+
+  // Step 2: Upload video binary
+  await withRetry(
+    () =>
+      axios.put(uploadUrl, videoBuffer, {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          'Content-Type': 'video/mp4',
+        },
+        maxBodyLength: Infinity,
+        maxContentLength: Infinity,
+        timeout: 300000, // 5 min for large uploads
+      }),
+    { label: 'LinkedIn video upload', retries: 2, baseDelay: 5000 }
+  );
+
+  logger.info('[LinkedIn] Video uploaded. Creating post...');
+
+  // Step 3: Create UGC post with video
+  const response = await withRetry(
+    () =>
+      axios.post(
+        `${LI_API}/ugcPosts`,
+        {
+          author: authorUrn,
+          lifecycleState: 'PUBLISHED',
+          specificContent: {
+            'com.linkedin.ugc.ShareContent': {
+              shareCommentary: { text: postText.slice(0, 3000) },
+              shareMediaCategory: 'VIDEO',
+              media: [
+                {
+                  status: 'READY',
+                  description: { text: videoTitle },
+                  media: assetUrn,
+                  title: { text: videoTitle.slice(0, 200) },
+                },
+              ],
+            },
+          },
+          visibility: { 'com.linkedin.ugc.MemberNetworkVisibility': 'PUBLIC' },
+        },
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            'Content-Type': 'application/json',
+            'X-Restli-Protocol-Version': '2.0.0',
+          },
+        }
+      ),
+    { label: 'LinkedIn video post', retries: 3, baseDelay: 2000 }
+  );
+
+  const postId = response.headers['x-restli-id'] || response.data?.id;
+  logger.info(`[LinkedIn] ✓ Video published. Post ID: ${postId}`);
+  return {
+    platform: 'linkedin',
+    success: true,
+    postId,
+    postUrl: `https://www.linkedin.com/feed/update/${postId}/`,
+  };
+}
+
+module.exports = { postToLinkedIn, postToLinkedInWithImage, postVideoToLinkedIn, getPersonUrn, verifyLinkedInSetup };

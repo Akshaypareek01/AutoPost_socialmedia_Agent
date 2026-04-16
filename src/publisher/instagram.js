@@ -280,4 +280,82 @@ async function postCarouselToInstagram(caption, imageUrls) {
   };
 }
 
-module.exports = { postToInstagram, postCarouselToInstagram, refreshToLongLivedToken, verifyInstagramSetup };
+/**
+ * Post a video (Reel) to Instagram.
+ *
+ * Flow:
+ *   1. Create video container with media_type=REELS + video_url
+ *   2. Poll container status until FINISHED (encoding can take 1-3 min)
+ *   3. Publish container
+ *
+ * Requirements:
+ *   - Video must be a publicly accessible HTTPS URL (MP4, H.264, AAC audio)
+ *   - Duration: 3–90 seconds for Reels
+ *   - Aspect ratio: 9:16 recommended (720x1280 or 1080x1920)
+ *
+ * @param {string} caption   - Post caption
+ * @param {string} videoUrl  - Public HTTPS URL of the MP4
+ * @param {string} [coverUrl] - Optional cover image URL
+ * @returns {Object}
+ */
+async function postVideoToInstagram(caption, videoUrl, coverUrl) {
+  const accessToken = process.env.INSTAGRAM_ACCESS_TOKEN;
+  const accountId = process.env.INSTAGRAM_BUSINESS_ACCOUNT_ID;
+
+  if (!accessToken || !accountId) {
+    throw new Error('Instagram credentials not configured.');
+  }
+  if (!videoUrl) throw new Error('videoUrl is required for Instagram video post');
+
+  logger.info(`[Instagram] Creating Reel container for: ${videoUrl.slice(0, 80)}...`);
+
+  const containerFields = {
+    media_type: 'REELS',
+    video_url: videoUrl,
+    caption: (caption || '').slice(0, INSTAGRAM_CAPTION_MAX),
+    access_token: accessToken,
+  };
+
+  if (coverUrl) {
+    containerFields.cover_url = coverUrl;
+  }
+
+  // Step 1: Create container
+  const containerRes = await withRetry(
+    () => graphFormPost(`${IG_API}/${accountId}/media`, containerFields),
+    { label: 'IG video container', retries: 3, baseDelay: 3000 }
+  );
+
+  const containerId = containerRes.data?.id;
+  if (!containerId) throw new Error('Failed to get video container ID from Instagram');
+
+  logger.info(`[Instagram] Video container created: ${containerId}. Waiting for encoding...`);
+
+  // Step 2: Poll until FINISHED — video encoding can take 1-3 minutes
+  await waitForContainerReady(containerId, accessToken, 300000); // 5 min timeout
+
+  // Step 3: Publish
+  logger.info('[Instagram] Publishing Reel...');
+  const publishRes = await withRetry(
+    () =>
+      graphFormPost(`${IG_API}/${accountId}/media_publish`, {
+        creation_id: containerId,
+        access_token: accessToken,
+      }),
+    { label: 'IG video publish', retries: 3, baseDelay: 3000 }
+  );
+
+  const mediaId = publishRes.data?.id;
+  if (!mediaId) throw new Error('Instagram video publish did not return media ID');
+
+  logger.info(`[Instagram] ✓ Reel published! Media ID: ${mediaId}`);
+  return {
+    platform: 'instagram',
+    success: true,
+    mediaId,
+    type: 'reel',
+    postUrl: `https://www.instagram.com/reel/${mediaId}/`,
+  };
+}
+
+module.exports = { postToInstagram, postCarouselToInstagram, postVideoToInstagram, refreshToLongLivedToken, verifyInstagramSetup };

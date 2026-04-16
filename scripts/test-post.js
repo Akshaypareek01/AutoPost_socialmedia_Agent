@@ -20,6 +20,35 @@ const testStory = {
   source: 'test',
 };
 
+/**
+ * When true, pulls the top ranked story from the real fetcher (HN/RSS/Google News + history),
+ * so each run tracks what's actually trending instead of the fixed `testStory`.
+ * Enable: `node scripts/test-post.js --live` or `TEST_POST_LIVE=1`.
+ * @returns {boolean}
+ */
+function useLiveStoryFromFetcher() {
+  if (process.argv.includes('--live')) return true;
+  const v = String(process.env.TEST_POST_LIVE || '').toLowerCase();
+  return v === '1' || v === 'true' || v === 'yes';
+}
+
+/**
+ * Resolve which story to run the pipeline against (fixture vs live fetcher).
+ * @returns {Promise<Object>} story object compatible with `extractFacts` / `generateCarouselImages`
+ */
+async function resolveStory() {
+  if (!useLiveStoryFromFetcher()) return testStory;
+  const { fetchAllStories } = require('../src/fetcher/index');
+  const stories = await fetchAllStories();
+  if (!stories.length) {
+    console.warn('⚠️  Fetcher returned no fresh stories — falling back to embedded test story.\n');
+    return testStory;
+  }
+  const top = stories[0];
+  console.log(`   Live story (${top.source}): ${top.title}\n`);
+  return top;
+}
+
 function getAI() {
   const provider = process.env.AI_PROVIDER || 'claude';
   return provider === 'gemini' ? callGemini : callClaude;
@@ -27,13 +56,18 @@ function getAI() {
 
 async function main() {
   console.log('\n🚀 TechPageAuto — Carousel Pipeline Test\n');
-  console.log(`   Cover image mode: ${resolveCoverImageMode()} (env COVER_IMAGE_MODE="${process.env.COVER_IMAGE_MODE || ''}")\n`);
+  console.log(`   Cover image mode: ${resolveCoverImageMode()} (env COVER_IMAGE_MODE="${process.env.COVER_IMAGE_MODE || ''}")`);
+  console.log(
+    `   Story source: ${useLiveStoryFromFetcher() ? 'live fetcher (--live or TEST_POST_LIVE)' : 'fixed testStory (add --live for trending)'}\n`
+  );
+
+  const story = await resolveStory();
 
   // ── Step 1: Extract 3 facts ───────────────────────────────
   console.log('Step 1: Extracting 3 facts for carousel slides...');
   let facts;
   try {
-    facts = await extractFacts(testStory, getAI());
+    facts = await extractFacts(story, getAI());
     console.log(`✅ Got ${facts.length} facts:`);
     facts.forEach((f, i) => console.log(`   Slide ${i + 2}: "${f.headline}" — ${f.body.slice(0, 50)}...`));
     console.log('');
@@ -46,7 +80,7 @@ async function main() {
   console.log('Step 2: Generating 4 carousel images (cover + 3 fact slides)...');
   let imageUrls;
   try {
-    imageUrls = await generateCarouselImages(testStory, facts);
+    imageUrls = await generateCarouselImages(story, facts);
     console.log(`✅ ${imageUrls.length} images uploaded to R2:`);
     imageUrls.forEach((url, i) => console.log(`   Slide ${i + 1}: ${url}`));
     console.log('');
@@ -57,7 +91,9 @@ async function main() {
 
   // ── Step 3: Post carousel to Instagram ───────────────────
   console.log('Step 3: Posting carousel to Instagram...');
-  const caption = `🤖 AI is already the default stack in 2025. Swipe to see what's changing ➡️\n\n#ai #tech #developer #nvhotech #buildinpublic #artificialintelligence`;
+  const headline =
+    story.title && story.title.length > 180 ? `${story.title.slice(0, 177)}…` : story.title || 'Tech carousel';
+  const caption = `📰 ${headline}\n\nSwipe for the breakdown ➡️\n\n#ai #tech #developer #nvhotech #buildinpublic #artificialintelligence`;
 
   try {
     let result;

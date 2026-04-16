@@ -4,8 +4,8 @@
  */
 
 require('dotenv').config();
-const { postToInstagram, postCarouselToInstagram } = require('./instagram');
-const { postToLinkedIn } = require('./linkedin');
+const { postToInstagram, postCarouselToInstagram, postVideoToInstagram } = require('./instagram');
+const { postToLinkedIn, postVideoToLinkedIn } = require('./linkedin');
 const { getByStatus, updatePost } = require('../utils/queue');
 const { recordPosted, pruneHistory } = require('../utils/history');
 const logger = require('../utils/logger');
@@ -103,6 +103,13 @@ async function publishPost(post) {
 async function publishToInstagram(post) {
   const caption = post.instagramCaption;
 
+  // Video (Reel): use videoUrl
+  if (post.contentType === 'video' && post.videoUrl) {
+    logger.info('[Publisher] Instagram Reel: posting video');
+    const coverUrl = process.env.INSTAGRAM_REEL_COVER_URL || undefined;
+    return await postVideoToInstagram(caption, post.videoUrl, coverUrl);
+  }
+
   // Carousel: use imageUrls array (cover + fact slides)
   if (Array.isArray(post.imageUrls) && post.imageUrls.length >= 2) {
     logger.info(`[Publisher] Instagram carousel: ${post.imageUrls.length} slides`);
@@ -115,6 +122,11 @@ async function publishToInstagram(post) {
 }
 
 async function publishToLinkedIn(post) {
+  // Video: upload local file
+  if (post.contentType === 'video' && post.videoLocalPath) {
+    logger.info('[Publisher] LinkedIn: posting video');
+    return await postVideoToLinkedIn(post.linkedinPost, post.videoLocalPath, post.title || 'Tech Update');
+  }
   return await postToLinkedIn(post.linkedinPost);
 }
 

@@ -13,6 +13,7 @@ const logger = require('../utils/logger');
 const { sleep } = require('../utils/retry');
 const { generateCoverImage, generateCarouselImages } = require('../image');
 const { extractFacts } = require('./facts');
+const { generateVideoPost, isTodayVideoDay } = require('../video');
 
 /**
  * Trims Instagram caption to INSTAGRAM_CAPTION_MAX_CHARS (default 480, max 2200).
@@ -122,21 +123,44 @@ async function generatePost(story) {
 /**
  * Generate posts for multiple stories and add to queue.
  * Only generates 1 post by default (best story of the day).
+ *
+ * On VIDEO_DAYS (see .env), generates a video post instead of a carousel.
  */
 async function generateAndQueue(stories, count = 1) {
   logger.info(`[Generator] Processing top ${count} of ${stories.length} stories`);
 
   const top = stories.slice(0, count);
   const queued = [];
+  const isVideoDay = isTodayVideoDay();
+
+  if (isVideoDay) {
+    logger.info('[Generator] 🎬 VIDEO DAY — generating video post instead of carousel');
+  }
 
   for (const story of top) {
     try {
-      const post = await generatePost(story);
+      let post;
+      if (isVideoDay) {
+        post = await generateVideoPost(story);
+      } else {
+        post = await generatePost(story);
+      }
       const queued_item = enqueue(post);
       queued.push(queued_item);
-      await sleep(1000); // be kind to AI APIs
+      await sleep(1000);
     } catch (err) {
       logger.error(`[Generator] Failed for story ${story.id}: ${err.message}`);
+      // If video pipeline failed, fall back to carousel
+      if (isVideoDay) {
+        logger.warn('[Generator] Video pipeline failed — falling back to carousel post');
+        try {
+          const fallbackPost = await generatePost(story);
+          const queued_item = enqueue(fallbackPost);
+          queued.push(queued_item);
+        } catch (fallbackErr) {
+          logger.error(`[Generator] Carousel fallback also failed: ${fallbackErr.message}`);
+        }
+      }
     }
   }
 

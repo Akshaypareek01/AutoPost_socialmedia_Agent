@@ -157,6 +157,45 @@ async function main() {
     'Fetcher uses this with HN + RSS; set GOOGLE_NEWS_RSS_URL to override'
   );
 
+  // ── VIDEO PIPELINE ────────────────────────────────────────
+  console.log('\n🎬 Video Pipeline (optional):');
+  const videoEnabled = process.env.VIDEO_ENABLED === 'true';
+  check('VIDEO_ENABLED set', !!process.env.VIDEO_ENABLED, 'Set VIDEO_ENABLED=true to enable video days');
+
+  if (videoEnabled) {
+    check('ELEVENLABS_API_KEY set', !!process.env.ELEVENLABS_API_KEY, 'Get from elevenlabs.io');
+    check('FAL_API_KEY set', !!process.env.FAL_API_KEY, 'Get from fal.ai dashboard');
+    check('BASE_VIDEO_PATH set', !!process.env.BASE_VIDEO_PATH, 'Record a 5-10s face clip, set path here');
+
+    if (process.env.BASE_VIDEO_PATH) {
+      check(
+        'BASE_VIDEO_PATH file exists',
+        fs.existsSync(process.env.BASE_VIDEO_PATH),
+        `File not found at: ${process.env.BASE_VIDEO_PATH}`
+      );
+    }
+
+    // Check ffmpeg
+    const { spawnSync } = require('child_process');
+    const ff = spawnSync('ffmpeg', ['-version'], { encoding: 'utf8', timeout: 5000 });
+    check('ffmpeg installed', ff.status === 0, 'Run: brew install ffmpeg (Mac) or apt install ffmpeg (Linux)');
+
+    if (process.env.ELEVENLABS_API_KEY) {
+      await checkAsync(
+        'ElevenLabs API reachable',
+        async () => {
+          await axios.get('https://api.elevenlabs.io/v1/voices', {
+            headers: { 'xi-api-key': process.env.ELEVENLABS_API_KEY },
+            timeout: 10000,
+          });
+        },
+        'Check ELEVENLABS_API_KEY is correct'
+      );
+    }
+  } else {
+    console.log('       (skipped — VIDEO_ENABLED is not true)');
+  }
+
   // ── SUMMARY ───────────────────────────────────────────────
   console.log('\n──────────────────────────────────────');
   console.log(`Result: ${passed} passed, ${failed} failed`);

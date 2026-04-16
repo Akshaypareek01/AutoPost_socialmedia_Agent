@@ -14,7 +14,12 @@
     "test:gen": "node src/generator/test.js",
     "test:pub": "node src/publisher/test.js",
     "logs": "tail -f logs/app.log",
-    "test:post": "node scripts/test-post.js"
+    "test:post": "node scripts/test-post.js",
+    "post:carousel:urls": "node scripts/post-carousel-from-urls.js",
+    "test:video": "node scripts/test-video.js",
+    "test:video:script": "node scripts/test-video.js --script",
+    "test:video:audio": "node scripts/test-video.js --audio",
+    "test:video:loop": "node scripts/test-video.js --loop"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1030.0",

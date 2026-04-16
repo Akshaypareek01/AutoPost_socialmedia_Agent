@@ -171,15 +171,34 @@ async function sendApprovalRequest(post) {
     ],
   };
 
-  const coverUrl = post.imageUrl || process.env.INSTAGRAM_DEFAULT_IMAGE_URL || '';
+  const isVideo = post.contentType === 'video';
+  const coverUrl = isVideo
+    ? (process.env.INSTAGRAM_REEL_COVER_URL || '')
+    : (post.imageUrl || post.imageUrls?.[0] || process.env.INSTAGRAM_DEFAULT_IMAGE_URL || '');
   const storyTitle = (post.story?.title || 'N/A').slice(0, 220);
   const timeoutMin = process.env.APPROVAL_TIMEOUT_MINUTES || 30;
+
+  // Build preview message differently for video vs carousel
+  const contentTypeLabel = isVideo ? '🎬 *VIDEO (Reel)*' : '🖼️ *CAROUSEL (5 slides)*';
+  const videoLine = isVideo && post.videoUrl
+    ? `\n🔗 *Video URL:*\n\`${post.videoUrl}\``
+    : '';
+  const scriptLine = isVideo && post.script
+    ? [`\n📝 *Script preview:*`, `\`\`\``, post.script.slice(0, 250) + '...', `\`\`\``].join('\n')
+    : '';
+  const durationLine = isVideo && post.audioDuration
+    ? `⏱ Duration: ${post.audioDuration.toFixed(1)}s`
+    : '';
 
   const preview = [
     `🆕 *New Post Ready for Review*`,
     `ID: \`${post.id}\``,
+    `Type: ${contentTypeLabel}`,
     `📰 *Story:* ${escapeMarkdown(post.story?.title || 'N/A')}`,
-    coverUrl ? `\n🔗 *Cover image:*\n\`${coverUrl}\`` : '\n⚠️ No cover — set `INSTAGRAM_DEFAULT_IMAGE_URL` in `.env` or fix image generation.',
+    durationLine,
+    coverUrl ? `\n🔗 *Cover image:*\n\`${coverUrl}\`` : '\n⚠️ No cover image.',
+    videoLine,
+    scriptLine,
     ``,
     `📸 *Instagram Caption Preview:*`,
     `\`\`\``,
@@ -192,7 +211,7 @@ async function sendApprovalRequest(post) {
     `\`\`\``,
     ``,
     `⏰ Auto-rejects in ${timeoutMin} minutes if no response.`,
-  ].join('\n');
+  ].filter(Boolean).join('\n');
 
   // Photo + approve buttons so you see the actual card (Telegram fetches the URL).
   if (coverUrl) {
